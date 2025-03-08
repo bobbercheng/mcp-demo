@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bomberman Game</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+
+        #game-container {
+            margin: 20px;
+        }
+
+        #game-board {
+            display: grid;
+            gap: 1px;
+            background-color: #ccc;
+            border: 2px solid #333;
+        }
+
+        .cell {
+            width: 40px;
+            height: 40px;
+            background-color: #fff;
+            position: relative;
+        }
+
+        .block {
+            background-color: #666;
+        }
+
+        .player {
+            position: absolute;
+            width: 80%;
+            height: 80%;
+            border-radius: 50%;
+            top: 10%;
+            left: 10%;
+            transition: all 0.1s ease-out;
+        }
+
+        .player1 {
+            background-color: #ff4444;
+        }
+
+        .player2 {
+            background-color: #4444ff;
+        }
+
+        .bomb {
+            position: absolute;
+            width: 60%;
+            height: 60%;
+            background-color: #000;
+            border-radius: 50%;
+            top: 20%;
+            left: 20%;
+            animation: pulse 1s infinite;
+        }
+
+        .explosion {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: #ffa500;
+            animation: explode 0.5s;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+            100% { transform: scale(1); }
+        }
+
+        @keyframes explode {
+            0% { opacity: 1; }
+            100% { opacity: 0; }
+        }
+
+        #game-info {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+            margin: 20px 0;
+        }
+
+        .player-info {
+            text-align: center;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        #winner-display {
+            font-size: 24px;
+            font-weight: bold;
+            margin: 20px 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <div id="game-info">
+            <div class="player-info" style="color: #ff4444;">
+                Player 1 (JKLI + H)<br>
+                Position: <span id="p1-pos">0,0</span><br>
+                Blocks: <span id="p1-blocks">0</span>
+            </div>
+            <div class="player-info" style="color: #4444ff;">
+                Player 2 (WASD + F)<br>
+                Position: <span id="p2-pos">0,0</span><br>
+                Blocks: <span id="p2-blocks">0</span>
+            </div>
+        </div>
+        <div id="game-board"></div>
+        <div id="winner-display"></div>
+    </div>
+
+    <script>
+        // Game Constants
+        const GRID_SIZE = 15; // Size of the game board
+        const BLOCK_CHANCE = 0.3; // Probability of generating a block in each cell
+        const MOVEMENT_SPEED = 200; // Movement speed in milliseconds
+        const BOMB_TIMER = 2000; // Time before bomb explodes in milliseconds
+        const EXPLOSION_DURATION = 500; // Duration of explosion animation in milliseconds
+        const EXPLOSION_RANGE = 2; // Number of cells the explosion reaches
+
+        // Player Controls
+        const CONTROLS = {
+            player1: {
+                up: 'I',
+                down: 'K',
+                left: 'J',
+                right: 'L',
+                bomb: 'H'
+            },
+            player2: {
+                up: 'W',
+                down: 'S',
+                left: 'A',
+                right: 'D',
+                bomb: 'F'
+            }
+        };
+
+        // Game State
+        const gameState = {
+            grid: [], // 0: empty, 1: block, 2: bomb
+            players: {
+                player1: {
+                    x: 0,
+                    y: 0,
+                    blocksDestroyed: 0,
+                    moving: false,
+                    direction: null
+                },
+                player2: {
+                    x: GRID_SIZE - 1,
+                    y: GRID_SIZE - 1,
+                    blocksDestroyed: 0,
+                    moving: false,
+                    direction: null
+                }
+            },
+            bombs: [], // Array to track active bombs
+            gameOver: false
+        };
+
+        // Initialize game board
+        function initializeGame() {
+            const board = document.getElementById('game-board');
+            board.style.gridTemplate = `repeat(${GRID_SIZE}, 40px) / repeat(${GRID_SIZE}, 40px)`;
+
+            // Create grid
+            for (let y = 0; y < GRID_SIZE; y++) {
+                gameState.grid[y] = [];
+                for (let x = 0; x < GRID_SIZE; x++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'cell';
+                    cell.id = `cell-${x}-${y}`;
+                    board.appendChild(cell);
+
+                    // Generate random blocks, avoiding player starting positions
+                    if (Math.random() < BLOCK_CHANCE &&
+                        !(x === 0 && y === 0) && // Player 1 start
+                        !(x === GRID_SIZE - 1 && y === GRID_SIZE - 1)) { // Player 2 start
+                        gameState.grid[y][x] = 1;
+                        cell.classList.add('block');
+                    } else {
+                        gameState.grid[y][x] = 0;
+                    }
+                }
+            }
+
+            // Create players
+            createPlayer('player1', 0, 0);
+            createPlayer('player2', GRID_SIZE - 1, GRID_SIZE - 1);
+            updatePlayerInfo();
+        }
+
+        // Create player element
+        function createPlayer(playerId, x, y) {
+            const player = document.createElement('div');
+            player.className = `player ${playerId}`;
+            player.id = playerId;
+            document.getElementById(`cell-${x}-${y}`).appendChild(player);
+            gameState.players[playerId].x = x;
+            gameState.players[playerId].y = y;
+        }
+
+        // Update player position display
+        function updatePlayerInfo() {
+            document.getElementById('p1-pos').textContent = 
+                `${gameState.players.player1.x},${gameState.players.player1.y}`;
+            document.getElementById('p2-pos').textContent = 
+                `${gameState.players.player2.x},${gameState.players.player2.y}`;
+            document.getElementById('p1-blocks').textContent = 
+                gameState.players.player1.blocksDestroyed;
+            document.getElementById('p2-blocks').textContent = 
+                gameState.players.player2.blocksDestroyed;
+        }
+
+        // Handle player movement
+        function movePlayer(playerId, direction) {
+            if (gameState.gameOver) return;
+
+            const player = gameState.players[playerId];
+            let newX = player.x;
+            let newY = player.y;
+
+            switch (direction) {
+                case 'up': newY--; break;
+                case 'down': newY++; break;
+                case 'left': newX--; break;
+                case 'right': newX++; break;
+            }
+
+            // Check if move is valid
+            if (isValidMove(newX, newY)) {
+                const playerElement = document.getElementById(playerId);
+                playerElement.style.transform = `translate(${(newX - player.x) * 40}px, ${(newY - player.y) * 40}px)`;
+                
+                setTimeout(() => {
+                    player.x = newX;
+                    player.y = newY;
+                    document.getElementById(`cell-${newX}-${newY}`).appendChild(playerElement);
+                    playerElement.style.transform = '';
+                    updatePlayerInfo();
+                }, 100);
+            }
+        }
+
+        // Validate move
+        function isValidMove(x, y) {
+            return x >= 0 && x < GRID_SIZE && 
+                   y >= 0 && y < GRID_SIZE && 
+                   gameState.grid[y][x] !== 1;
+        }
+
+        // Place bomb
+        function placeBomb(playerId) {
+            if (gameState.gameOver) return;
+
+            const player = gameState.players[playerId];
+            const x = player.x;
+            const y = player.y;
+
+            if (gameState.grid[y][x] !== 2) { // No bomb already there
+                gameState.grid[y][x] = 2;
+                const bomb = document.createElement('div');
+                bomb.className = 'bomb';
+                document.getElementById(`cell-${x}-${y}`).appendChild(bomb);
+
+                setTimeout(() => explodeBomb(x, y, playerId), BOMB_TIMER);
+            }
+        }
+
+        // Handle bomb explosion
+        function explodeBomb(x, y, playerId) {
+            if (gameState.gameOver) return;
+
+            const explosionCells = [];
+            gameState.grid[y][x] = 0;
+
+            // Remove bomb element
+            const cell = document.getElementById(`cell-${x}-${y}`);
+            const bomb = cell.querySelector('.bomb');
+            if (bomb) bomb.remove();
+
+            // Create explosions in all directions
+            const directions = [[0,0], [0,1], [0,-1], [1,0], [-1,0]];
+            directions.forEach(([dx, dy]) => {
+                for (let i = 0; i <= EXPLOSION_RANGE; i++) {
+                    const newX = x + (dx * i);
+                    const newY = y + (dy * i);
+
+                    if (newX >= 0 && newX < GRID_SIZE && 
+                        newY >= 0 && newY < GRID_SIZE) {
+                        const targetCell = document.getElementById(`cell-${newX}-${newY}`);
+                        
+                        // Create explosion effect
+                        const explosion = document.createElement('div');
+                        explosion.className = 'explosion';
+                        targetCell.appendChild(explosion);
+                        explosionCells.push([newX, newY]);
+
+                        // Destroy block if present
+                        if (gameState.grid[newY][newX] === 1) {
+                            gameState.grid[newY][newX] = 0;
+                            targetCell.classList.remove('block');
+                            gameState.players[playerId].blocksDestroyed++;
+                            updatePlayerInfo();
+                        }
+
+                        // Check for player hit
+                        checkPlayerHit(newX, newY);
+
+                        // Remove explosion after animation
+                        setTimeout(() => explosion.remove(), EXPLOSION_DURATION);
+                    }
+                }
+            });
+        }
+
+        // Check if a player was hit by explosion
+        function checkPlayerHit(x, y) {
+            Object.entries(gameState.players).forEach(([playerId, player]) => {
+                if (player.x === x && player.y === y) {
+                    endGame(playerId === 'player1' ? 'player2' : 'player1');
+                }
+            });
+        }
+
+        // End the game
+        function endGame(winnerId) {
+            gameState.gameOver = true;
+            const winnerDisplay = document.getElementById('winner-display');
+            winnerDisplay.style.display = 'block';
+            winnerDisplay.style.color = winnerId === 'player1' ? '#ff4444' : '#4444ff';
+            winnerDisplay.textContent = `${winnerId === 'player1' ? 'Player 1' : 'Player 2'} Wins!`;
+        }
+
+        // Key event handlers
+        const pressedKeys = new Set();
+
+        document.addEventListener('keydown', (e) => {
+            const key = e.key.toUpperCase();
+            if (pressedKeys.has(key)) return;
+            pressedKeys.add(key);
+
+            // Player 1 controls
+            if (key === CONTROLS.player1.up) movePlayer('player1', 'up');
+            if (key === CONTROLS.player1.down) movePlayer('player1', 'down');
+            if (key === CONTROLS.player1.left) movePlayer('player1', 'left');
+            if (key === CONTROLS.player1.right) movePlayer('player1', 'right');
+            if (key === CONTROLS.player1.bomb) placeBomb('player1');
+
+            // Player 2 controls
+            if (key === CONTROLS.player2.up) movePlayer('player2', 'up');
+            if (key === CONTROLS.player2.down) movePlayer('player2', 'down');
+            if (key === CONTROLS.player2.left) movePlayer('player2', 'left');
+            if (key === CONTROLS.player2.right) movePlayer('player2', 'right');
+            if (key === CONTROLS.player2.bomb) placeBomb('player2');
+        });
+
+        document.addEventListener('keyup', (e) => {
+            pressedKeys.delete(e.key.toUpperCase());
+        });
+
+        // Start the game
+        initializeGame();
+    </script>
+</body>
+</html> 
